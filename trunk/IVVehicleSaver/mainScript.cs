@@ -100,7 +100,7 @@ namespace IVVehicleSaver
 
             try
             {
-                if (Player.Character.isInVehicle() && Player.Character.CurrentVehicle.GetPedOnSeat(VehicleSeat.Driver) == Player.Character && Player.Character.CurrentVehicle.Speed < 1)
+                if (Player.Character.isInVehicle() && Player.Character.CurrentVehicle.GetPedOnSeat(VehicleSeat.Driver) == Player.Character && Player.Character.CurrentVehicle.Speed < .8f)
                     // keyboard SPACE(57) + ARROW_DOWN(108)
                     // Gamepad A(16) + PAD_DOWN(9)
                     if (Function.Call<bool>("IS_BUTTON_PRESSED", 0, 14) && Function.Call<bool>("IS_BUTTON_PRESSED", 0, 9))
@@ -113,7 +113,7 @@ namespace IVVehicleSaver
             if (Settings.GetValueBool("DISPLAYHELP", "MISC", false))
                 try
                 {
-                    if (Player.Character.isInVehicle() && Player.Character.CurrentVehicle.GetPedOnSeat(VehicleSeat.Driver) == Player.Character && Player.Character.CurrentVehicle.Speed < 1)
+                    if (Player.Character.isInVehicle() && Player.Character.CurrentVehicle.GetPedOnSeat(VehicleSeat.Driver) == Player.Character && Player.Character.CurrentVehicle.Speed < .8f)
                     {
                         if (!hasSeenHelpMessageOnThisVehicle)
                         {
@@ -132,18 +132,21 @@ namespace IVVehicleSaver
                 }
                 catch (Exception crap) { Log("mainScript_Tick-MessageHandler", crap.Message); }
 
+            Guid pGUID = Guid.Empty;
             try
             {
-                Guid pGUID = Guid.Empty;
                 if (Player.Character.isInVehicle())
                     pGUID = GetGuid(Player.Character.CurrentVehicle);
+                else
+                    pGUID = GetGuid(Player.LastVehicle);
+
                 int index = 0, temp_index = -1;
                 IVVehicle temp = new IVVehicle();
                 foreach (IVVehicle v in mainList)
                 {
                     if (v.ID == pGUID)
                     {
-                        Vehicle cVeh = Player.Character.CurrentVehicle;
+                        Vehicle cVeh = Player.Character.isInVehicle() ? Player.Character.CurrentVehicle : Player.LastVehicle;
                         temp_index = index;
                         temp = v;
                         temp.x = cVeh.Position.X;
@@ -159,7 +162,7 @@ namespace IVVehicleSaver
                 if (temp_index != -1)
                     mainList[temp_index] = temp;
             }
-            catch (Exception crap) { Log("mainScript_Tick-VehicleHandler", crap.Message); }
+            catch (Exception crap) { Log("mainScript_Tick-VehicleHandler", crap.Message + pGUID.ToString()); }
         }
 
         
@@ -376,8 +379,13 @@ namespace IVVehicleSaver
                 try
                 {
                     scriptHandle = World.GetClosestVehicle(GetIVVehiclePosition(veh), 5.0f, new Model(veh.ModelHash));
-                    scriptHandle.isRequiredForMission = true;
-                    scriptHandle.Metadata.GUID = veh.ID;
+                    if (scriptHandle.isAlive && scriptHandle.isDriveable)
+                    {
+                        scriptHandle.isRequiredForMission = true;
+                        scriptHandle.Metadata.GUID = veh.ID;
+                    }
+                    else
+                        RemoveVehicle(scriptHandle);
                     if (!blipList.ContainsKey(veh.ID))
                     {
                         #region blip display
