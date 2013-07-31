@@ -421,14 +421,19 @@ namespace IVVehicleSaver
 
 
                         #region blip display
+                        // Attach a new blip to the new handle
                         Blip b = scriptHandle.AttachBlip();
+                        // Set blip properties
                         b.Color = BlipColor.White;
                         b.Scale = .7f;
                         b.Friendly = true;
                         b.Display = BlipDisplay.ArrowAndMap;
                         b.Name = Function.Call<string>("GET_DISPLAY_NAME_FROM_VEHICLE_MODEL", veh.ModelHash);
-                        try { blipList.Add(veh.ID, b); }
-                        catch (Exception) { }
+                        // Add or change the blip in the blipList
+                        if (blipList.ContainsKey(veh.ID))
+                            blipList[veh.ID] = b;
+                        else
+                            blipList.Add(veh.ID, b);
                         #endregion blip display
 
                         Log("Spawned Vehicle", String.Format("x:{0} y:{1} z:{2} h:{3} c:{4} c1:{5} c2:{6} hash:{7} guid:{8}", veh.x, veh.y, veh.z, veh.h, veh.Color, veh.Color1, veh.Color2, veh.ModelHash, veh.ID));
