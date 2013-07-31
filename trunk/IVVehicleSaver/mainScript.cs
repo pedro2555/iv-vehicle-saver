@@ -431,7 +431,10 @@ namespace IVVehicleSaver
                         b.Name = Function.Call<string>("GET_DISPLAY_NAME_FROM_VEHICLE_MODEL", veh.ModelHash);
                         // Add or change the blip in the blipList
                         if (blipList.ContainsKey(veh.ID))
+                        {
+                            blipList[veh.ID].Delete();
                             blipList[veh.ID] = b;
+                        }
                         else
                             blipList.Add(veh.ID, b);
                         #endregion blip display
