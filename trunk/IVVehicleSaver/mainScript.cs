@@ -20,6 +20,7 @@ namespace IVVehicleSaver
         [Serializable]
         public struct IVVehicle
         {
+            public float Fuel;
             public float x, y, z, h;
             public float Dirt;
             public int Color, Color1, Color2;
@@ -28,11 +29,39 @@ namespace IVVehicleSaver
         }
 
         #region Properties
-        List<IVVehicle> mainList = new List<IVVehicle>();
-        Dictionary<Guid, Blip> blipList = new Dictionary<Guid, Blip>();
-        bool hasSeenHelpMessageOnThisVehicle = false;
-        int SAVES_MADE;
 
+        List<Guid> updateFuelIDS = new List<Guid>();
+        /// <summary>
+        /// Holds the latest request fuel value.
+        /// </summary>
+        int latestRequestedFuel = -1;
+        /// <summary>
+        /// Sets if is using Realistic Fuel Mod
+        /// </summary>
+        bool usingFuelScript = false;
+        /// <summary>
+        /// Realistic Fuel Script GUID
+        /// </summary>
+        Guid FuelScriptGUID = new Guid("3583e09d-6c44-4820-85e9-93926307d4f8");
+        /// <summary>
+        /// List of saved vehicles
+        /// </summary>
+        List<IVVehicle> mainList = new List<IVVehicle>();
+        /// <summary>
+        /// Blip list
+        /// </summary>
+        Dictionary<Guid, Blip> blipList = new Dictionary<Guid, Blip>();
+        /// <summary>
+        /// To manage message display
+        /// </summary>
+        bool hasSeenHelpMessageOnThisVehicle = false;
+        /// <summary>
+        /// To manage vehicle session saving
+        /// </summary>
+        int SAVES_MADE;
+        /// <summary>
+        /// Used for logs
+        /// </summary>
         internal static readonly string scriptName = "IVVehicleSaver";
         #endregion Properties
 
@@ -48,6 +77,24 @@ namespace IVVehicleSaver
                 }
             );
 
+            GUID = new Guid("392f87f6-5267-430e-b8ce-e4ede894b02e");
+            // check if using Realistic Fuel Script
+            if (File.Exists(Game.InstallFolder + "\\scripts\\FuelScript.net.dll"))
+            {
+                Log("Realistic Fuel Mod", "FuelScript.net.dll present in scripts folder");
+                usingFuelScript = true;
+                BindScriptCommand("CurrentFuel", (s, p) =>
+                    {
+                        if (latestRequestedFuel != -1)
+                        {
+                            IVVehicle temp = mainList[latestRequestedFuel];
+                            temp.Fuel = p.Convert<float>(0);
+                            mainList[latestRequestedFuel] = temp;
+                            latestRequestedFuel = -1;
+                        }
+                    }
+                );
+            }
             SAVES_MADE = Game.GetIntegerStatistic(IntegerStatistic.SAVES_MADE);
             BindConsoleCommand("ivvehiclesaver-load", (p) => { LoadFile(out mainList); });
             BindConsoleCommand("ivvehiclesaver-save", (p) => { SaveFile(); });
@@ -87,6 +134,7 @@ namespace IVVehicleSaver
         /// <param name="e"></param>
         void mainScript_Tick(object sender, EventArgs e)
         {
+            #region auto-saving
             try
             {
                 if (SAVES_MADE < Game.GetIntegerStatistic(IntegerStatistic.SAVES_MADE))
@@ -96,8 +144,9 @@ namespace IVVehicleSaver
                 }
             }
             catch (Exception crap) { Log("mainScript_Tick-AutoSaveHandler", crap.Message); }
+            #endregion auto-saving
 
-
+            #region button-handler
             try
             {
                 if (Player.Character.isInVehicle() && Player.Character.CurrentVehicle.GetPedOnSeat(VehicleSeat.Driver) == Player.Character && Player.Character.CurrentVehicle.Speed < .8f)
@@ -109,7 +158,9 @@ namespace IVVehicleSaver
                         AddOrRemoveVehicle(Player.Character.CurrentVehicle);
             }
             catch (Exception crap) { Log("mainScript_Tick-KeyHandler", crap.Message); }
+            #endregion button-handler
 
+            #region message-displaying
             if (Settings.GetValueBool("DISPLAYHELP", "MISC", false))
                 try
                 {
@@ -131,6 +182,7 @@ namespace IVVehicleSaver
                     }
                 }
                 catch (Exception crap) { Log("mainScript_Tick-MessageHandler", crap.Message); }
+            #endregion message-displaying
 
             Guid pGUID = Guid.Empty;
             try
@@ -146,7 +198,26 @@ namespace IVVehicleSaver
                 {
                     if (v.ID == pGUID)
                     {
-                        Vehicle cVeh = Player.Character.isInVehicle() ? Player.Character.CurrentVehicle : Player.LastVehicle;
+                        Vehicle cVeh;
+
+                        cVeh = Player.Character.CurrentVehicle;
+                        if (Player.Character.isInVehicle())
+                        {
+                            if (usingFuelScript && !updateFuelIDS.Contains(v.ID))
+                            {
+                                SendScriptCommand(FuelScriptGUID, "SetCurrentFuel", new ParameterCollection(new string[] { v.Fuel.ToString() }));
+                                updateFuelIDS.Add(v.ID);
+                            }
+
+                            if (usingFuelScript)
+                            {
+                                // Request fuel data
+                                latestRequestedFuel = index;
+                                SendScriptCommand(FuelScriptGUID, "GetCurrentFuel");
+                            }
+                        }
+                        else
+                            cVeh = Player.LastVehicle;
                         temp_index = index;
                         temp = v;
                         temp.x = cVeh.Position.X;
@@ -168,6 +239,15 @@ namespace IVVehicleSaver
         
 
         #region Methods
+        /// <summary>
+        /// Dump info about a vehicle in the log file
+        /// </summary>
+        /// <param name="veh"></param>
+        void DumpVehInfo(IVVehicle veh, string message)
+        {
+            Log(message, String.Format("x:{0} y:{1} z:{2} h:{3} c:{4} c1:{5} c2:{6} f:{7} hash:{8} guid:{9} fuel:{10}", veh.x, veh.y, veh.z, veh.h, veh.Color, veh.Color1, veh.Color2, veh.Fuel, veh.ModelHash, veh.ID));
+        }
+
         /// <summary>
         /// Populates a given list with the contents from IVVehicleSaver.xml
         /// </summary>
@@ -297,7 +377,7 @@ namespace IVVehicleSaver
                     // Reset the Guid, so vehicle can be re-added.
                     veh.Metadata.GUID = Guid.Empty;
                     // Log the action
-                    Log("Removed Vehicle", String.Format("x:{0} y:{1} z:{2} h:{3} c:{4} c1:{5} c2:{6} hash:{7} guid:{8}", v.x, v.y, v.z, v.h, v.Color, v.Color1, v.Color2, v.ModelHash, v.ID));
+                    DumpVehInfo(v, "Removed Vehicle");
                     break;
                 }
                 index++;
@@ -338,6 +418,7 @@ namespace IVVehicleSaver
                 newVeh.Color1 = veh.FeatureColor1.Index;
                 newVeh.Color2 = veh.FeatureColor2.Index;
                 mainList.Add(newVeh);
+                newVeh.Fuel = -1.0f;
                 #endregion internal stuff
 
                 #region blip display
@@ -363,7 +444,7 @@ namespace IVVehicleSaver
                 #endregion
 
                 // Log the action
-                Log("Added Vehicle", String.Format("x:{0} y:{1} z:{2} h:{3} c:{4} c1:{5} c2:{6} hash:{7} guid:{8}", newVeh.x, newVeh.y, newVeh.z, newVeh.h, newVeh.Color, newVeh.Color1, newVeh.Color2, newVeh.ModelHash, newVeh.ID));
+                DumpVehInfo(newVeh, "Added Vehicle");
             }
             catch (Exception crap) { Log("AddVehicle", crap.Message); }
         }
@@ -383,6 +464,8 @@ namespace IVVehicleSaver
                     {
                         scriptHandle.isRequiredForMission = true;
                         scriptHandle.Metadata.GUID = veh.ID;
+                        // Object list wrongly defined in Fuel Script
+                        // SendScriptCommand(FuelScriptGUID, "SetVehicleFuel", new ObjectCollection(new object[] { veh.Fuel, scriptHandle }));
                     }
                     else
                         RemoveVehicle(scriptHandle);
@@ -395,8 +478,8 @@ namespace IVVehicleSaver
                         b.Friendly = true;
                         b.Display = BlipDisplay.ArrowAndMap;
                         b.Name = Function.Call<string>("GET_DISPLAY_NAME_FROM_VEHICLE_MODEL", veh.ModelHash);
-                        blipList.Add(veh.ID, b); 
-                        Log("Added Blip for vehicle", String.Format("x:{0} y:{1} z:{2} h:{3} c:{4} c1:{5} c2:{6} hash:{7} guid:{8}", veh.x, veh.y, veh.z, veh.h, veh.Color, veh.Color1, veh.Color2, veh.ModelHash, veh.ID));
+                        blipList.Add(veh.ID, b);
+                        DumpVehInfo(veh, "Added Blip for vehicle");
                         #endregion blip display
                     }
                 }
@@ -404,6 +487,7 @@ namespace IVVehicleSaver
                 {
                     try
                     {
+                        Function.Call("CLEAR_AREA_OF_CARS", veh.x, veh.y, veh.z, 1.0f);
                         // Re populate vehicle
                         Function.Call("REQUEST_MODEL", veh.ModelHash);
                         //Wait(250);
@@ -418,7 +502,8 @@ namespace IVVehicleSaver
                         scriptHandle.FreezePosition = true;
                         scriptHandle.PlaceOnGroundProperly();
                         scriptHandle.FreezePosition = false;
-
+                        // Object list wrongly defined in Fuel Script
+                        // SendScriptCommand(FuelScriptGUID, "SetVehicleFuel", new ObjectCollection(new object[] { veh.Fuel, scriptHandle}));
 
                         #region blip display
                         // Attach a new blip to the new handle
@@ -438,8 +523,7 @@ namespace IVVehicleSaver
                         else
                             blipList.Add(veh.ID, b);
                         #endregion blip display
-
-                        Log("Spawned Vehicle", String.Format("x:{0} y:{1} z:{2} h:{3} c:{4} c1:{5} c2:{6} hash:{7} guid:{8}", veh.x, veh.y, veh.z, veh.h, veh.Color, veh.Color1, veh.Color2, veh.ModelHash, veh.ID));
+                        DumpVehInfo(veh, "Spawned Vehicle");
                     }
                     catch (Exception crap) { Log("ForceVehicle-SpawnVehicle", crap.Message); }
                 }
